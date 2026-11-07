@@ -116,4 +116,32 @@ defmodule ActivityPub.Federator.Transformer.DeleteHandlingTest do
 
     assert match?({:error, _}, Transformer.handle_incoming(data))
   end
+
+  test "reprocessing a delete for an object that is already a Tombstone is a no-op" do
+    note = insert(:note, %{data: %{"id" => "https://fedi.local/objects/410"}})
+    activity = insert(:note_activity, %{note: note})
+
+    _ = cached_or_handle(activity)
+
+    data =
+      file("fixtures/mastodon/mastodon-delete.json")
+      |> Jason.decode!()
+
+    object =
+      data["object"]
+      |> Map.put("id", activity.data["object"])
+
+    data =
+      data
+      |> Map.put("object", object)
+      |> Map.put("actor", activity.data["actor"])
+
+    assert {:ok, %Object{}} = Transformer.handle_incoming(data)
+
+    tombstone = Object.get_cached!(ap_id: note.data["id"])
+    assert tombstone.data["type"] == "Tombstone"
+
+    # Before the fix this raised FunctionClauseError in ActivityPub.delete/3.
+    assert {:ok, ^tombstone} = ActivityPub.delete(tombstone)
+  end
 end

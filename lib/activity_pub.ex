@@ -506,6 +506,29 @@ defmodule ActivityPub do
     delete(object, is_local?, opts)
   end
 
+  # A Delete may be delivered more than once (sender retry, replayed outbox
+  # entry). Once the object is a Tombstone there is nothing left to delete, so
+  # treat it as a successful no-op instead of falling through to the clauses
+  # below and raising FunctionClauseError. Actor tombstones are excluded so
+  # the actor-specific cleanup in the formerType clause still runs.
+  def delete(
+        %{data: %{"type" => "Tombstone", "formerType" => former_type}} = object,
+        _is_local?,
+        _opts
+      )
+      when not is_in(former_type, :supported_actor_types) do
+    {:ok, object}
+  end
+
+  def delete(
+        %{data: %{"type" => "Tombstone"} = data} = object,
+        _is_local?,
+        _opts
+      )
+      when not is_map_key(data, "formerType") do
+    {:ok, object}
+  end
+
   def delete(
         %{data: %{"id" => id, "type" => type}} = delete_actor,
         is_local?,
